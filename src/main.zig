@@ -1,86 +1,93 @@
 const std = @import("std");
-const zig_hello = @import("zig_hello");
 const c = @cImport({
     @cInclude("SDL2/SDL.h");
+    @cInclude("glad/glad.h"); // GLAD header
 });
 
-const sdl = c;
-
 pub fn main() !void {
-    // Prints to stderr, ignoring potential errors.
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
-    try zig_hello.bufferedPrint();
+    if (c.SDL_Init(c.SDL_INIT_VIDEO) != 0) return error.SDLInit;
+    defer c.SDL_Quit();
 
-    // Initialize SDL
-    if (sdl.SDL_Init(sdl.SDL_INIT_VIDEO) != 0) {
-        sdl.SDL_Log("Unable to initialize SDL: %s", sdl.SDL_GetError());
-        return error.SDLInitializationFailed;
+    _ = c.SDL_GL_SetAttribute(c.SDL_GL_CONTEXT_PROFILE_MASK, c.SDL_GL_CONTEXT_PROFILE_CORE);
+    _ = c.SDL_GL_SetAttribute(c.SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    _ = c.SDL_GL_SetAttribute(c.SDL_GL_CONTEXT_MINOR_VERSION, 3);
+
+    const window = c.SDL_CreateWindow("SDL + GLAD Triangle", 100, 100, 800, 600, c.SDL_WINDOW_OPENGL | c.SDL_WINDOW_SHOWN) orelse return error.SDLWindow;
+    defer c.SDL_DestroyWindow(window);
+
+    const ctx = c.SDL_GL_CreateContext(window) orelse return error.GLContext;
+    defer c.SDL_GL_DeleteContext(ctx);
+
+    // Load OpenGL with GLAD (using SDL's proc address)
+    if (c.gladLoadGLLoader(@ptrCast(&c.SDL_GL_GetProcAddress)) == 0) {
+        return error.GLADLoadFailed;
     }
-    defer sdl.SDL_Quit();
 
-    // Create window
-    const window = sdl.SDL_CreateWindow(
-        "Zig + SDL2 — Press ESC to quit",
-        sdl.SDL_WINDOWPOS_CENTERED,
-        sdl.SDL_WINDOWPOS_CENTERED,
-        800,
-        600,
-        sdl.SDL_WINDOW_RESIZABLE,
-    ) orelse {
-        sdl.SDL_Log("Failed to create window: %s", sdl.SDL_GetError());
-        return error.WindowCreationFailed;
+    // Now you can use prefixed GL functions: c.glClearColor, c.glClear, etc.
+
+    // Triangle vertices
+    const vertices = [_]f32{
+        -0.5, -0.5, 0.0,
+        0.5,  -0.5, 0.0,
+        0.0,  0.5,  0.0,
     };
-    defer sdl.SDL_DestroyWindow(window);
 
-    // Create renderer
-    const renderer = sdl.SDL_CreateRenderer(window, -1, sdl.SDL_RENDERER_ACCELERATED) orelse {
-        sdl.SDL_Log("Failed to create renderer: %s", sdl.SDL_GetError());
-        return error.RendererCreationFailed;
-    };
-    defer sdl.SDL_DestroyRenderer(renderer);
+    // Shaders (same as before, but using prefixed calls)
+    const vertex_src =
+        \\#version 330 core
+        \\layout (location = 0) in vec3 aPos;
+        \\void main() { gl_Position = vec4(aPos, 1.0); }
+    ;
+    const fragment_src =
+        \\#version 330 core
+        \\out vec4 FragColor;
+        \\void main() { FragColor = vec4(1.0, 0.5, 0.2, 1.0); }
+    ;
 
-    var quit = false;
-    var event: sdl.SDL_Event = undefined;
+    const vertex_shader = c.glCreateShader(c.GL_VERTEX_SHADER);
+    c.glShaderSource(vertex_shader, 1, &vertex_src.ptr, null);
+    c.glCompileShader(vertex_shader);
+
+    const fragment_shader = c.glCreateShader(c.GL_FRAGMENT_SHADER);
+    c.glShaderSource(fragment_shader, 1, &fragment_src.ptr, null);
+    c.glCompileShader(fragment_shader);
+
+    const program = c.glCreateProgram();
+    c.glAttachShader(program, vertex_shader);
+    c.glAttachShader(program, fragment_shader);
+    c.glLinkProgram(program);
+
+    // VAO/VBO
+    var vao: u32 = undefined;
+    var vbo: u32 = undefined;
+    c.glGenVertexArrays(1, &vao);
+    c.glGenBuffers(1, &vbo);
+
+    c.glBindVertexArray(vao);
+    c.glBindBuffer(c.GL_ARRAY_BUFFER, vbo);
+    c.glBufferData(c.GL_ARRAY_BUFFER, @sizeOf(@TypeOf(vertices)), &vertices, c.GL_STATIC_DRAW);
+
+    c.glVertexAttribPointer(0, 3, c.GL_FLOAT, c.GL_FALSE, 3 * @sizeOf(f32), null);
+    c.glEnableVertexAttribArray(0);
+
+    c.glBindBuffer(c.GL_ARRAY_BUFFER, 0);
+    c.glBindVertexArray(0);
 
     // Main loop
+    var quit = false;
     while (!quit) {
-        while (sdl.SDL_PollEvent(&event) != 0) {
-            switch (event.type) {
-                sdl.SDL_QUIT => quit = true,
-                sdl.SDL_KEYDOWN => {
-                    if (event.key.keysym.sym == sdl.SDLK_ESCAPE) {
-                        quit = true;
-                    }
-                },
-                else => {},
-            }
+        var event: c.SDL_Event = undefined;
+        while (c.SDL_PollEvent(&event) != 0) {
+            if (event.type == c.SDL_QUIT) quit = true;
         }
 
-        // Clear screen to dark blue
-        _ = sdl.SDL_SetRenderDrawColor(renderer, 20, 30, 70, 255);
-        _ = sdl.SDL_RenderClear(renderer);
+        c.glClearColor(0.2, 0.3, 0.3, 1.0);
+        c.glClear(c.GL_COLOR_BUFFER_BIT);
 
-        // Present
-        sdl.SDL_RenderPresent(renderer);
-        sdl.SDL_Delay(16); // ~60 FPS
+        c.glUseProgram(program);
+        c.glBindVertexArray(vao);
+        c.glDrawArrays(c.GL_TRIANGLES, 0, 3);
+
+        c.SDL_GL_SwapWindow(window);
     }
-}
-
-test "simple test" {
-    const gpa = std.testing.allocator;
-    var list: std.ArrayList(i32) = .empty;
-    defer list.deinit(gpa); // Try commenting this out and see if zig detects the memory leak!
-    try list.append(gpa, 42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
-}
-
-test "fuzz example" {
-    const Context = struct {
-        fn testOne(context: @This(), input: []const u8) anyerror!void {
-            _ = context;
-            // Try passing `--fuzz` to `zig build test` and see if it manages to fail this test case!
-            try std.testing.expect(!std.mem.eql(u8, "canyoufindme", input));
-        }
-    };
-    try std.testing.fuzz(Context{}, Context.testOne, .{});
 }

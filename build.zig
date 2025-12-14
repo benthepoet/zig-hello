@@ -103,9 +103,14 @@ pub fn build(b: *std.Build) void {
         },
         .linux => {
             exe.linkSystemLibrary("sdl2");
+            exe.linkSystemLibrary("gl");
         },
         else => {},
     }
+
+    // Add GLAD source and include path
+    exe.addCSourceFile(.{ .file = b.path("deps/glad/src/glad.c"), .flags = &.{"-std=c99"} });
+    exe.addIncludePath(b.path("deps/glad/include"));
 
     // This declares intent for the executable to be installed into the
     // install prefix when running `zig build` (i.e. when executing the default
