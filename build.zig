@@ -86,25 +86,34 @@ pub fn build(b: *std.Build) void {
 
     exe.linkLibC();
 
-    const vcpkg_root_str = std.process.getEnvVarOwned(b.allocator, "VCPKG_ROOT") catch "";
-    exe.addIncludePath(.{ .cwd_relative = b.pathJoin(&.{ vcpkg_root_str, "installed/x64-mingw-static/include" }) });
-    exe.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ vcpkg_root_str, "installed/x64-mingw-static/lib" }) });
+    if (target.result.os.tag == .windows) {
+        const vcpkg_root_str = std.process.getEnvVarOwned(b.allocator, "VCPKG_ROOT") catch "";
+        exe.addIncludePath(.{ .cwd_relative = b.pathJoin(&.{ vcpkg_root_str, "installed/x64-mingw-dynamic/include" }) });
+        exe.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ vcpkg_root_str, "installed/x64-mingw-dynamic/lib" }) });
 
-    exe.linkSystemLibrary("sdl2"); // vcpkg integration works out of the box
+        exe.linkSystemLibrary("SDL2.dll"); // vcpkg integration works out of the box
+
+        const sdl_install_file = b.addInstallBinFile(
+            .{ .cwd_relative = b.fmt("{s}/installed/x64-mingw-dynamic/bin/SDL2.dll", .{vcpkg_root_str}) },
+            "SDL2.dll",
+        );
+
+        b.default_step.dependOn(&sdl_install_file.step);
+    }
 
     // These fix the GDI/User32 errors — required even for static SDL2
-    if (target.result.os.tag == .windows) {
-        exe.linkSystemLibrary("gdi32");
-        exe.linkSystemLibrary("user32");
-        exe.linkSystemLibrary("imm32");
-        exe.linkSystemLibrary("ole32");
-        exe.linkSystemLibrary("oleaut32");
-        exe.linkSystemLibrary("winmm"); // for timeBeginPeriod
-        exe.linkSystemLibrary("setupapi");
-        exe.linkSystemLibrary("version");
-        exe.linkSystemLibrary("dinput8");
-        exe.linkSystemLibrary("dxguid");
-    }
+    // if (target.result.os.tag == .windows) {
+    //     exe.linkSystemLibrary("gdi32");
+    //     exe.linkSystemLibrary("user32");
+    //     exe.linkSystemLibrary("imm32");
+    //     exe.linkSystemLibrary("ole32");
+    //     exe.linkSystemLibrary("oleaut32");
+    //     exe.linkSystemLibrary("winmm"); // for timeBeginPeriod
+    //     exe.linkSystemLibrary("setupapi");
+    //     exe.linkSystemLibrary("version");
+    //     exe.linkSystemLibrary("dinput8");
+    //     exe.linkSystemLibrary("dxguid");
+    // }
 
     // This declares intent for the executable to be installed into the
     // install prefix when running `zig build` (i.e. when executing the default
