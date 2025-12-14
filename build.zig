@@ -100,6 +100,8 @@ pub fn build(b: *std.Build) void {
             );
 
             b.default_step.dependOn(&sdl_install_file.step);
+
+            exe.linkSystemLibrary("opengl32");
         },
         .linux => {
             exe.linkSystemLibrary("sdl2");
