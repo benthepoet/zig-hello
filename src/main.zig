@@ -1,86 +1,94 @@
 const std = @import("std");
-const zig_hello = @import("zig_hello");
-const c = @cImport({
-    @cInclude("SDL2/SDL.h");
-});
-
-const sdl = c;
+const zglfw = @import("zglfw");
+const zopengl = @import("zopengl");
 
 pub fn main() !void {
-    // Prints to stderr, ignoring potential errors.
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
-    try zig_hello.bufferedPrint();
+    try zglfw.init();
+    defer zglfw.terminate();
 
-    // Initialize SDL
-    if (sdl.SDL_Init(sdl.SDL_INIT_VIDEO) != 0) {
-        sdl.SDL_Log("Unable to initialize SDL: %s", sdl.SDL_GetError());
-        return error.SDLInitializationFailed;
-    }
-    defer sdl.SDL_Quit();
+    // Set OpenGL context hints
+    zglfw.windowHint(.client_api, .opengl_api);
+    zglfw.windowHint(.context_version_major, 4);
+    zglfw.windowHint(.context_version_minor, 6);
+    zglfw.windowHint(.opengl_profile, .opengl_core_profile);
 
-    // Create window
-    const window = sdl.SDL_CreateWindow(
-        "Zig + SDL2 — Press ESC to quit",
-        sdl.SDL_WINDOWPOS_CENTERED,
-        sdl.SDL_WINDOWPOS_CENTERED,
-        800,
-        600,
-        sdl.SDL_WINDOW_RESIZABLE,
-    ) orelse {
-        sdl.SDL_Log("Failed to create window: %s", sdl.SDL_GetError());
-        return error.WindowCreationFailed;
+    const window = try zglfw.Window.create(800, 600, "zopengl + zglfw Triangle", null);
+    defer window.destroy();
+
+    // Make the context current (global function, not method)
+    zglfw.makeContextCurrent(window);
+
+    // Load OpenGL functions
+    try zopengl.loadCoreProfile(zglfw.getProcAddress, 4, 6);
+
+    const gl = zopengl.bindings;
+
+    // Triangle vertices
+    const vertices = [_]f32{
+        -0.5, -0.5, 0.0,
+        0.5,  -0.5, 0.0,
+        0.0,  0.5,  0.0,
     };
-    defer sdl.SDL_DestroyWindow(window);
 
-    // Create renderer
-    const renderer = sdl.SDL_CreateRenderer(window, -1, sdl.SDL_RENDERER_ACCELERATED) orelse {
-        sdl.SDL_Log("Failed to create renderer: %s", sdl.SDL_GetError());
-        return error.RendererCreationFailed;
-    };
-    defer sdl.SDL_DestroyRenderer(renderer);
+    // Shaders
+    const vertex_shader_src =
+        \\#version 460 core
+        \\layout (location = 0) in vec3 aPos;
+        \\void main() {
+        \\    gl_Position = vec4(aPos, 1.0);
+        \\}
+    ;
 
-    var quit = false;
-    var event: sdl.SDL_Event = undefined;
+    const fragment_shader_src =
+        \\#version 460 core
+        \\out vec4 FragColor;
+        \\void main() {
+        \\    FragColor = vec4(1.0, 0.5, 0.2, 1.0); // Orange
+        \\}
+    ;
+
+    // Compile shaders
+    const vertex_shader = gl.createShader(gl.VERTEX_SHADER);
+    gl.shaderSource(vertex_shader, 1, &vertex_shader_src.ptr, null);
+    gl.compileShader(vertex_shader);
+
+    const fragment_shader = gl.createShader(gl.FRAGMENT_SHADER);
+    gl.shaderSource(fragment_shader, 1, &fragment_shader_src.ptr, null);
+    gl.compileShader(fragment_shader);
+
+    // Link program
+    const program = gl.createProgram();
+    gl.attachShader(program, vertex_shader);
+    gl.attachShader(program, fragment_shader);
+    gl.linkProgram(program);
+
+    // VAO/VBO setup
+    var vao: u32 = undefined;
+    var vbo: u32 = undefined;
+    gl.genVertexArrays(1, &vao);
+    gl.genBuffers(1, &vbo);
+
+    gl.bindVertexArray(vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, vertices.len * @sizeOf(f32), &vertices, gl.STATIC_DRAW);
+
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 3 * @sizeOf(f32), null);
+    gl.enableVertexAttribArray(0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, 0);
+    gl.bindVertexArray(0);
 
     // Main loop
-    while (!quit) {
-        while (sdl.SDL_PollEvent(&event) != 0) {
-            switch (event.type) {
-                sdl.SDL_QUIT => quit = true,
-                sdl.SDL_KEYDOWN => {
-                    if (event.key.keysym.sym == sdl.SDLK_ESCAPE) {
-                        quit = true;
-                    }
-                },
-                else => {},
-            }
-        }
+    while (!window.shouldClose()) {
+        zglfw.pollEvents();
 
-        // Clear screen to dark blue
-        _ = sdl.SDL_SetRenderDrawColor(renderer, 20, 30, 70, 255);
-        _ = sdl.SDL_RenderClear(renderer);
+        gl.clearColor(0.2, 0.3, 0.3, 1.0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
 
-        // Present
-        sdl.SDL_RenderPresent(renderer);
-        sdl.SDL_Delay(16); // ~60 FPS
+        gl.useProgram(program);
+        gl.bindVertexArray(vao);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+        window.swapBuffers();
     }
-}
-
-test "simple test" {
-    const gpa = std.testing.allocator;
-    var list: std.ArrayList(i32) = .empty;
-    defer list.deinit(gpa); // Try commenting this out and see if zig detects the memory leak!
-    try list.append(gpa, 42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
-}
-
-test "fuzz example" {
-    const Context = struct {
-        fn testOne(context: @This(), input: []const u8) anyerror!void {
-            _ = context;
-            // Try passing `--fuzz` to `zig build test` and see if it manages to fail this test case!
-            try std.testing.expect(!std.mem.eql(u8, "canyoufindme", input));
-        }
-    };
-    try std.testing.fuzz(Context{}, Context.testOne, .{});
 }

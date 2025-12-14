@@ -84,28 +84,15 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
+    // Add zglfw
+    const zglfw_dep = b.dependency("zglfw", .{});
+    exe.root_module.addImport("zglfw", zglfw_dep.module("root"));
+    exe.linkLibrary(zglfw_dep.artifact("glfw"));
+
+    // Add zopengl
+    const zopengl_dep = b.dependency("zopengl", .{});
+    exe.root_module.addImport("zopengl", zopengl_dep.module("root"));
     exe.linkLibC();
-
-    switch (target.result.os.tag) {
-        .windows => {
-            const vcpkg_root_str = std.process.getEnvVarOwned(b.allocator, "VCPKG_ROOT") catch "";
-            exe.addIncludePath(.{ .cwd_relative = b.pathJoin(&.{ vcpkg_root_str, "installed/x64-mingw-dynamic/include" }) });
-            exe.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ vcpkg_root_str, "installed/x64-mingw-dynamic/lib" }) });
-
-            exe.linkSystemLibrary("SDL2.dll"); // vcpkg integration works out of the box
-
-            const sdl_install_file = b.addInstallBinFile(
-                .{ .cwd_relative = b.fmt("{s}/installed/x64-mingw-dynamic/bin/SDL2.dll", .{vcpkg_root_str}) },
-                "SDL2.dll",
-            );
-
-            b.default_step.dependOn(&sdl_install_file.step);
-        },
-        .linux => {
-            exe.linkSystemLibrary("sdl2");
-        },
-        else => {},
-    }
 
     // This declares intent for the executable to be installed into the
     // install prefix when running `zig build` (i.e. when executing the default
