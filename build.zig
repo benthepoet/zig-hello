@@ -86,7 +86,10 @@ pub fn build(b: *std.Build) void {
 
     const zglfw = b.dependency("zglfw", .{});
     exe.root_module.addImport("zglfw", zglfw.module("root"));
-    exe.linkLibrary(zglfw.artifact("glfw"));
+
+    if (target.result.os.tag != .emscripten) {
+        exe.linkLibrary(zglfw.artifact("glfw"));
+    }
 
     const zopengl = b.dependency("zopengl", .{});
     exe.root_module.addImport("zopengl", zopengl.module("root"));
