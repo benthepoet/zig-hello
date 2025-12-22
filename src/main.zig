@@ -1,93 +1,113 @@
+// src/main.zig
 const std = @import("std");
-const c = @cImport({
-    @cInclude("SDL2/SDL.h");
-    @cInclude("glad/glad.h"); // GLAD header
-});
+const zglfw = @import("zglfw");
+const zopengl = @import("zopengl");
 
 pub fn main() !void {
-    if (c.SDL_Init(c.SDL_INIT_VIDEO) != 0) return error.SDLInit;
-    defer c.SDL_Quit();
+    // Initialize GLFW
+    try zglfw.init();
+    defer zglfw.terminate();
 
-    _ = c.SDL_GL_SetAttribute(c.SDL_GL_CONTEXT_PROFILE_MASK, c.SDL_GL_CONTEXT_PROFILE_CORE);
-    _ = c.SDL_GL_SetAttribute(c.SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    _ = c.SDL_GL_SetAttribute(c.SDL_GL_CONTEXT_MINOR_VERSION, 3);
+    // Request OpenGL 4.6 core profile (change to 3.3 if your hardware/driver doesn't support 4.6)
+    zglfw.windowHint(.context_version_major, 4);
+    zglfw.windowHint(.context_version_minor, 6);
+    zglfw.windowHint(.opengl_profile, .opengl_core_profile);
+    // Optional: debug context for better error messages
+    // zglfw.windowHint(.opengl_debug_context, true);
 
-    const window = c.SDL_CreateWindow("SDL + GLAD Triangle", 100, 100, 800, 600, c.SDL_WINDOW_OPENGL | c.SDL_WINDOW_SHOWN) orelse return error.SDLWindow;
-    defer c.SDL_DestroyWindow(window);
+    // Create the window
+    const window = try zglfw.Window.create(800, 600, "zopengl + zglfw Triangle", null);
+    defer zglfw.destroyWindow(window);
 
-    const ctx = c.SDL_GL_CreateContext(window) orelse return error.GLContext;
-    defer c.SDL_GL_DeleteContext(ctx);
+    // Make the OpenGL context current
+    zglfw.makeContextCurrent(window);
 
-    // Load OpenGL with GLAD (using SDL's proc address)
-    if (c.gladLoadGLLoader(@ptrCast(&c.SDL_GL_GetProcAddress)) == 0) {
-        return error.GLADLoadFailed;
-    }
+    // Optional vsync
+    zglfw.swapInterval(1);
 
-    // Now you can use prefixed GL functions: c.glClearColor, c.glClear, etc.
+    // Load OpenGL functions (core profile 4.6)
+    try zopengl.loadCoreProfile(zglfw.getProcAddress, 4, 6);
 
-    // Triangle vertices
+    // Use the raw bindings (recommended - stable and complete)
+    const gl = zopengl.bindings;
+
+    // ------------------------------------------------------------------
+    // Triangle vertex data
+    // ------------------------------------------------------------------
     const vertices = [_]f32{
         -0.5, -0.5, 0.0,
         0.5,  -0.5, 0.0,
         0.0,  0.5,  0.0,
     };
 
-    // Shaders (same as before, but using prefixed calls)
-    const vertex_src =
-        \\#version 330 core
+    // ------------------------------------------------------------------
+    // Simple shaders
+    // ------------------------------------------------------------------
+    const vertex_shader_src =
+        \\#version 460 core
         \\layout (location = 0) in vec3 aPos;
-        \\void main() { gl_Position = vec4(aPos, 1.0); }
+        \\void main() {
+        \\    gl_Position = vec4(aPos, 1.0);
+        \\}
     ;
-    const fragment_src =
-        \\#version 330 core
+
+    const fragment_shader_src =
+        \\#version 460 core
         \\out vec4 FragColor;
-        \\void main() { FragColor = vec4(1.0, 0.5, 0.2, 1.0); }
+        \\void main() {
+        \\    FragColor = vec4(1.0, 0.5, 0.2, 1.0); // Orange
+        \\}
     ;
 
-    const vertex_shader = c.glCreateShader(c.GL_VERTEX_SHADER);
-    c.glShaderSource(vertex_shader, 1, &vertex_src.ptr, null);
-    c.glCompileShader(vertex_shader);
+    // ------------------------------------------------------------------
+    // Compile and link shader program
+    // ------------------------------------------------------------------
+    const vertex_shader = gl.createShader(gl.VERTEX_SHADER);
+    gl.shaderSource(vertex_shader, 1, &vertex_shader_src.ptr, null);
+    gl.compileShader(vertex_shader);
 
-    const fragment_shader = c.glCreateShader(c.GL_FRAGMENT_SHADER);
-    c.glShaderSource(fragment_shader, 1, &fragment_src.ptr, null);
-    c.glCompileShader(fragment_shader);
+    const fragment_shader = gl.createShader(gl.FRAGMENT_SHADER);
+    gl.shaderSource(fragment_shader, 1, &fragment_shader_src.ptr, null);
+    gl.compileShader(fragment_shader);
 
-    const program = c.glCreateProgram();
-    c.glAttachShader(program, vertex_shader);
-    c.glAttachShader(program, fragment_shader);
-    c.glLinkProgram(program);
+    const program = gl.createProgram();
+    gl.attachShader(program, vertex_shader);
+    gl.attachShader(program, fragment_shader);
+    gl.linkProgram(program);
 
-    // VAO/VBO
+    // ------------------------------------------------------------------
+    // Setup VAO and VBO
+    // ------------------------------------------------------------------
     var vao: u32 = undefined;
     var vbo: u32 = undefined;
-    c.glGenVertexArrays(1, &vao);
-    c.glGenBuffers(1, &vbo);
 
-    c.glBindVertexArray(vao);
-    c.glBindBuffer(c.GL_ARRAY_BUFFER, vbo);
-    c.glBufferData(c.GL_ARRAY_BUFFER, @sizeOf(@TypeOf(vertices)), &vertices, c.GL_STATIC_DRAW);
+    gl.genVertexArrays(1, &vao);
+    gl.genBuffers(1, &vbo);
 
-    c.glVertexAttribPointer(0, 3, c.GL_FLOAT, c.GL_FALSE, 3 * @sizeOf(f32), null);
-    c.glEnableVertexAttribArray(0);
+    gl.bindVertexArray(vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, vertices.len * @sizeOf(f32), &vertices, gl.STATIC_DRAW);
 
-    c.glBindBuffer(c.GL_ARRAY_BUFFER, 0);
-    c.glBindVertexArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 3 * @sizeOf(f32), null);
+    gl.enableVertexAttribArray(0);
 
-    // Main loop
-    var quit = false;
-    while (!quit) {
-        var event: c.SDL_Event = undefined;
-        while (c.SDL_PollEvent(&event) != 0) {
-            if (event.type == c.SDL_QUIT) quit = true;
-        }
+    // Unbind
+    gl.bindBuffer(gl.ARRAY_BUFFER, 0);
+    gl.bindVertexArray(0);
 
-        c.glClearColor(0.2, 0.3, 0.3, 1.0);
-        c.glClear(c.GL_COLOR_BUFFER_BIT);
+    // ------------------------------------------------------------------
+    // Main render loop
+    // ------------------------------------------------------------------
+    while (!window.shouldClose()) {
+        zglfw.pollEvents();
 
-        c.glUseProgram(program);
-        c.glBindVertexArray(vao);
-        c.glDrawArrays(c.GL_TRIANGLES, 0, 3);
+        gl.clearColor(0.2, 0.3, 0.3, 1.0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
 
-        c.SDL_GL_SwapWindow(window);
+        gl.useProgram(program);
+        gl.bindVertexArray(vao);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+        window.swapBuffers();
     }
 }

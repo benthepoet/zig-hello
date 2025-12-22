@@ -84,35 +84,12 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    exe.linkLibC();
+    const zglfw = b.dependency("zglfw", .{});
+    exe.root_module.addImport("zglfw", zglfw.module("root"));
+    exe.linkLibrary(zglfw.artifact("glfw"));
 
-    switch (target.result.os.tag) {
-        .windows => {
-            const vcpkg_root_str = std.process.getEnvVarOwned(b.allocator, "VCPKG_ROOT") catch "";
-            exe.addIncludePath(.{ .cwd_relative = b.pathJoin(&.{ vcpkg_root_str, "installed/x64-mingw-dynamic/include" }) });
-            exe.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ vcpkg_root_str, "installed/x64-mingw-dynamic/lib" }) });
-
-            exe.linkSystemLibrary("SDL2.dll"); // vcpkg integration works out of the box
-
-            const sdl_install_file = b.addInstallBinFile(
-                .{ .cwd_relative = b.fmt("{s}/installed/x64-mingw-dynamic/bin/SDL2.dll", .{vcpkg_root_str}) },
-                "SDL2.dll",
-            );
-
-            b.default_step.dependOn(&sdl_install_file.step);
-
-            exe.linkSystemLibrary("opengl32");
-        },
-        .linux => {
-            exe.linkSystemLibrary("sdl2");
-            exe.linkSystemLibrary("gl");
-        },
-        else => {},
-    }
-
-    // Add GLAD source and include path
-    exe.addCSourceFile(.{ .file = b.path("deps/glad/src/glad.c"), .flags = &.{"-std=c99"} });
-    exe.addIncludePath(b.path("deps/glad/include"));
+    const zopengl = b.dependency("zopengl", .{});
+    exe.root_module.addImport("zopengl", zopengl.module("root"));
 
     // This declares intent for the executable to be installed into the
     // install prefix when running `zig build` (i.e. when executing the default
