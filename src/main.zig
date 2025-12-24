@@ -95,11 +95,22 @@ pub fn main() !void {
     gl.bindBuffer(gl.ARRAY_BUFFER, 0);
     gl.bindVertexArray(0);
 
+    //const joystick1 = @as(zglfw.Joystick, @enumFromInt(0));
+    const joystick: zglfw.Joystick = @enumFromInt(0);
+
     // ------------------------------------------------------------------
     // Main render loop
     // ------------------------------------------------------------------
     while (!window.shouldClose()) {
         zglfw.pollEvents();
+
+        if (joystick.asGamepad()) |gamepad| {
+            const gamepad_state: zglfw.Gamepad.State = gamepad.getState() catch .{};
+            const action = gamepad_state.buttons[@intFromEnum(zglfw.Gamepad.Button.a)];
+            if (action == .press) {
+                std.debug.print("Button A pressed", .{});
+            }
+        }
 
         gl.clearColor(0.2, 0.3, 0.3, 1.0);
         gl.clear(gl.COLOR_BUFFER_BIT);
